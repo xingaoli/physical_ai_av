@@ -1,0 +1,11 @@
+{
+  "strong_accel_threshold": 2.0,
+  "gentle_accel_threshold": 0.5,
+  "gentle_decel_threshold": -0.5,
+  "strong_decel_threshold": -2.0,
+  "stop_speed_threshold": 0.5,
+  "sharp_steer_threshold": 0.01,
+  "gentle_steer_threshold": 0.002,
+  "acceleration_window": 5,
+  "curvature_window": 5
+}
