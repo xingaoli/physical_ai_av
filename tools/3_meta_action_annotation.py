@@ -96,8 +96,8 @@ class MetaActionDetector:
         # Calculate forward velocity magnitude (longitudinal speed)
         df['speed'] = np.sqrt(df['vx']**2 + df['vy']**2)
 
-        # Calculate longitudinal acceleration (forward direction)
-        df['long_accel'] = np.gradient(df['speed'], df['timestamp'] / 1e6)
+        # Use ax directly as longitudinal acceleration (x-axis = forward direction)
+        df['long_accel'] = df['ax']
 
         # Smooth acceleration to reduce noise
         df['long_accel_smooth'] = median_filter(

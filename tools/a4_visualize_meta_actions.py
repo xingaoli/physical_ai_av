@@ -98,9 +98,8 @@ def plot_meta_actions(video_data: dict, raw_df: pd.DataFrame = None, output_path
         timestamps = raw_df['timestamp_sec'].values
         speeds = raw_df['speed'].values
 
-        # Calculate acceleration from speed
-        import numpy as np
-        accels = np.gradient(raw_df['speed'].values, raw_df['timestamp'].values / 1e6)
+        # Use ax directly as longitudinal acceleration (x-axis = forward direction)
+        accels = raw_df['ax'].values
 
         # Curvature (fill NaN with 0)
         curvatures = raw_df['curvature'].fillna(0).values
