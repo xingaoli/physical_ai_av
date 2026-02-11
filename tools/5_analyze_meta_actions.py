@@ -20,16 +20,19 @@ def load_annotations(output_dir: Path, chunks: list) -> list:
     all_data = []
 
     for chunk_id in chunks:
-        annotation_file = output_dir / f"meta_actions.{chunk_id}.json"
+        chunk_dir = output_dir / f"meta_actions.{chunk_id}"
 
-        if not annotation_file.exists():
-            print(f"Warning: {annotation_file} not found, skipping...")
+        if not chunk_dir.exists():
+            print(f"Warning: {chunk_dir} not found, skipping...")
             continue
 
-        with open(annotation_file, 'r') as f:
-            chunk_data = json.load(f)
-            all_data.extend(chunk_data)
+        chunk_data = []
+        for json_file in sorted(chunk_dir.glob("*.meta_actions.json")):
+            with open(json_file, 'r') as f:
+                video_data = json.load(f)
+                chunk_data.append(video_data)
 
+        all_data.extend(chunk_data)
         print(f"✓ Loaded {len(chunk_data)} videos from {chunk_id}")
 
     return all_data
@@ -272,8 +275,8 @@ def main():
         chunks_to_analyze = args.chunks
     else:
         # Find all available chunks
-        chunk_files = sorted(output_dir.glob("meta_actions.chunk_*.json"))
-        chunks_to_analyze = [f.stem.replace('meta_actions.', '') for f in chunk_files]
+        chunk_dirs = sorted(output_dir.glob("meta_actions.chunk_*"))
+        chunks_to_analyze = [d.name.replace('meta_actions.', '') for d in chunk_dirs]
 
     if not chunks_to_analyze:
         print(f"No meta-action annotations found in {output_dir}")

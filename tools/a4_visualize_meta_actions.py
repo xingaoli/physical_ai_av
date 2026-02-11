@@ -17,20 +17,21 @@ import pandas as pd
 
 def load_annotation(chunk_id: str, video_uuid: str, data_dir: Path):
     """Load meta-action annotation JSON."""
-    annotation_file = data_dir / f"meta_actions.{chunk_id}.json"
+    chunk_dir = data_dir / f"meta_actions.{chunk_id}"
 
-    if not annotation_file.exists():
-        raise FileNotFoundError(f"Annotation file not found: {annotation_file}")
+    if not chunk_dir.exists():
+        raise FileNotFoundError(f"Annotation directory not found: {chunk_dir}")
 
-    with open(annotation_file, 'r') as f:
-        all_videos = json.load(f)
+    # Remove .egomotion suffix if present
+    video_uuid = video_uuid.replace('.egomotion', '')
+    target_file = chunk_dir / f"{video_uuid}.meta_actions.json"
 
-    # Find the requested video
-    for video_data in all_videos:
-        if video_uuid in video_data['video_uuid']:
-            return video_data
+    if not target_file.exists():
+        raise ValueError(f"Video {video_uuid} not found in chunk {chunk_id}")
 
-    raise ValueError(f"Video {video_uuid} not found in chunk {chunk_id}")
+    with open(target_file, 'r') as f:
+        video_data = json.load(f)
+        return video_data
 
 
 def load_raw_egomotion(video_uuid: str, data_dir: Path) -> pd.DataFrame:
@@ -50,6 +51,9 @@ def load_raw_egomotion(video_uuid: str, data_dir: Path) -> pd.DataFrame:
 
     # Find which chunk contains this video
     chunk_files = list(egomotion_dir.glob("egomotion.chunk_*.zip"))
+
+    # Remove .egomotion suffix if present
+    video_uuid = video_uuid.replace('.egomotion', '')
 
     for chunk_zip in chunk_files:
         try:
@@ -229,7 +233,7 @@ def main():
         print("Usage: python3 tools/visualize_meta_actions.py <chunk_id> <video_uuid> [output_path]")
         print("\nExample:")
         print("  python3 tools/visualize_meta_actions.py chunk_0000 86de1c0c-e9cd-44ef-aad2-211c6b8a00da")
-        print("\nTo find video_uuids, check the meta_actions.{chunk_id}.json file")
+        print("\nTo find video_uuids, check the meta_actions.{chunk_id}/ directory")
         sys.exit(1)
 
     chunk_id = sys.argv[1]

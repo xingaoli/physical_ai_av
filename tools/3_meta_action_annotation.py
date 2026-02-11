@@ -16,6 +16,9 @@ Keyframes are identified at moments when meta-action transitions occur.
 
 Usage:
     python3 tools/3_meta_action_annotation.py --chunks chunk_0000
+
+    add visualize first video
+    python3 tools/3_meta_action_annotation.py --chunks chunk_0000 --viz
 """
 
 import os
@@ -490,12 +493,22 @@ def main():
                     except Exception as e:
                         print(f"    Warning: Visualization failed: {e}")
 
-        # Save chunk results
+        # Save chunk results - each video as separate JSON file in a directory
         if chunk_results:
-            chunk_output = output_dir / f"meta_actions.{chunk_name}.json"
-            with open(chunk_output, 'w') as f:
-                json.dump(chunk_results, f, indent=2)
-            print(f"  ✓ Saved {len(chunk_results)} annotations to {chunk_output.name}")
+            # Create directory for this chunk
+            chunk_dir = output_dir / f"meta_actions.{chunk_name}"
+            chunk_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save each video as individual JSON file
+            for result in chunk_results:
+                video_uuid = result['video_uuid']
+                # Remove .egomotion suffix if present
+                video_uuid = video_uuid.replace('.egomotion', '')
+                json_path = chunk_dir / f"{video_uuid}.meta_actions.json"
+                with open(json_path, 'w') as f:
+                    json.dump(result, f, indent=2)
+
+            print(f"  ✓ Saved {len(chunk_results)} annotations to {chunk_dir.name}/")
 
             all_results.extend(chunk_results)
 
