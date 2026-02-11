@@ -12,10 +12,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import pandas as pd
 
 
-def load_annotation(chunk_id: str, video_uuid: str, data_dir: Path):
+def load_annotation(chunk_id: str, video_uuid: str, data_dir: Path) -> dict:
     """Load meta-action annotation JSON."""
     chunk_dir = data_dir / f"meta_actions.{chunk_id}"
 
@@ -34,85 +33,30 @@ def load_annotation(chunk_id: str, video_uuid: str, data_dir: Path):
         return video_data
 
 
-def load_raw_egomotion(video_uuid: str, data_dir: Path) -> pd.DataFrame:
+def plot_meta_actions(video_data: dict, output_path: Path = None):
     """
-    Load raw egomotion data for plotting full-resolution curves.
+    Create visualization plots for meta-action timeline using smooth_data.
 
     Args:
-        video_uuid: Video identifier
-        data_dir: Base data directory
-
-    Returns:
-        DataFrame with raw timestamp, speed, acceleration, curvature
-    """
-    import zipfile
-
-    egomotion_dir = data_dir / "labels" / "egomotion_corrected"
-
-    # Find which chunk contains this video
-    chunk_files = list(egomotion_dir.glob("egomotion.chunk_*.zip"))
-
-    # Remove .egomotion suffix if present
-    video_uuid = video_uuid.replace('.egomotion', '')
-
-    for chunk_zip in chunk_files:
-        try:
-            with zipfile.ZipFile(chunk_zip, 'r') as zf:
-                # Check if video is in this chunk
-                target_file = f"{video_uuid}.egomotion.parquet"
-                if target_file in zf.namelist():
-                    # Extract and load
-                    zf.extract(target_file, data_dir / ".temp_viz")
-                    temp_path = data_dir / ".temp_viz" / target_file
-                    df = pd.read_parquet(temp_path)
-                    temp_path.unlink()
-                    return df
-        except Exception:
-            continue
-
-    raise FileNotFoundError(f"Could not find egomotion data for {video_uuid}")
-
-
-def plot_meta_actions(video_data: dict, raw_df: pd.DataFrame = None, output_path: Path = None):
-    """
-    Create visualization plots for meta-action timeline.
-
-    Args:
-        video_data: Meta-action annotation data with keyframes
-        raw_df: Raw egomotion DataFrame with full-resolution data
+        video_data: Meta-action annotation data with smooth_data
         output_path: Path to save the figure
     """
-    fig, axes = plt.subplots(4, 1, figsize=(14, 10))
-    fig.suptitle(f"Meta-Action Timeline: {video_data['video_uuid']}", fontsize=14, fontweight='bold')
+    if 'smooth_data' not in video_data:
+        raise ValueError("smooth_data not found in video_data. Please regenerate with latest annotation script.")
+
+    smooth_data = video_data['smooth_data']
+    timestamps = smooth_data['timestamp_sec']
+    speeds = smooth_data['speed']
+    accels = smooth_data['acceleration']
+    yaw_rates = smooth_data['yaw_rate']
+    long_actions = smooth_data['long_action']
+    lat_actions = smooth_data['lat_action']
 
     keyframes = video_data['keyframes']
-
-    # Extract keyframe data for background coloring
     kf_timestamps = [kf['timestamp_sec'] for kf in keyframes]
-    kf_long_actions = [kf['long_action'] for kf in keyframes]
-    kf_lat_actions = [kf['lat_action'] for kf in keyframes]
 
-    # Use raw data for plotting if available, otherwise fall back to keyframe data
-    if raw_df is not None:
-        # Process raw data to get speed, acceleration, curvature
-        raw_df = raw_df.copy()
-        raw_df['speed'] = (raw_df['vx']**2 + raw_df['vy']**2)**0.5
-        raw_df['timestamp_sec'] = raw_df['timestamp'] / 1e6
-
-        timestamps = raw_df['timestamp_sec'].values
-        speeds = raw_df['speed'].values
-
-        # Use ax directly as longitudinal acceleration (x-axis = forward direction)
-        accels = raw_df['ax'].values
-
-        # Curvature (fill NaN with 0)
-        curvatures = raw_df['curvature'].fillna(0).values
-    else:
-        # Fall back to keyframe data
-        timestamps = [kf['timestamp_sec'] for kf in keyframes]
-        speeds = [kf['speed'] for kf in keyframes]
-        accels = [kf['acceleration'] for kf in keyframes]
-        curvatures = [kf['curvature'] for kf in keyframes]
+    fig, axes = plt.subplots(4, 1, figsize=(14, 10))
+    fig.suptitle(f"Meta-Action Timeline: {video_data['video_uuid']}", fontsize=14, fontweight='bold')
 
     # Color maps
     long_colors = {
@@ -143,8 +87,9 @@ def plot_meta_actions(video_data: dict, raw_df: pd.DataFrame = None, output_path
     axes[0].grid(True, alpha=0.3, linestyle='--')
     axes[0].set_title('Speed Profile', fontsize=11)
 
-    # Plot 2: Acceleration with longitudinal action background
-    for i in range(len(keyframes) - 1):
+    # Plot 2: Acceleration with keyframe-based longitudinal action background
+    kf_long_actions = [kf['long_action'] for kf in keyframes]
+    for i in range(len(kf_timestamps) - 1):
         action = kf_long_actions[i]
         color = long_colors.get(action, '#95A5A6')
         axes[1].axvspan(kf_timestamps[i], kf_timestamps[i+1], alpha=0.4, color=color)
@@ -163,36 +108,33 @@ def plot_meta_actions(video_data: dict, raw_df: pd.DataFrame = None, output_path
     long_patches = [mpatches.Patch(color=c, label=a, alpha=0.6) for a, c in sorted(long_colors.items())]
     axes[1].legend(handles=long_patches, loc='upper right', fontsize=7, ncol=4, framealpha=0.9)
 
-    # Plot 3: Curvature with lateral action background
-    for i in range(len(keyframes) - 1):
+    # Plot 3: Yaw Rate with keyframe-based lateral action background
+    kf_lat_actions = [kf['lat_action'] for kf in keyframes]
+    for i in range(len(kf_timestamps) - 1):
         action = kf_lat_actions[i]
         color = lat_colors.get(action, '#95A5A6')
         axes[2].axvspan(kf_timestamps[i], kf_timestamps[i+1], alpha=0.4, color=color)
 
-    axes[2].plot(timestamps, curvatures, 'g-', linewidth=2, zorder=10)
+    axes[2].plot(timestamps, yaw_rates, 'g-', linewidth=2, zorder=10)
     axes[2].axhline(0, color='black', linestyle='--', alpha=0.7, linewidth=1.5)
-    axes[2].axhline(0.002, color='orange', linestyle=':', alpha=0.5)
-    axes[2].axhline(-0.002, color='orange', linestyle=':', alpha=0.5)
-    axes[2].axhline(0.01, color='darkorange', linestyle=':', alpha=0.5)
-    axes[2].axhline(-0.01, color='darkorange', linestyle=':', alpha=0.5)
-    axes[2].set_ylabel('Curvature (1/m)', fontsize=10, fontweight='bold')
+    axes[2].axhline(0.02, color='orange', linestyle=':', alpha=0.5)
+    axes[2].axhline(-0.02, color='orange', linestyle=':', alpha=0.5)
+    axes[2].axhline(0.08, color='darkorange', linestyle=':', alpha=0.5)
+    axes[2].axhline(-0.08, color='darkorange', linestyle=':', alpha=0.5)
+    axes[2].set_ylabel('Yaw Rate (rad/s)', fontsize=10, fontweight='bold')
     axes[2].grid(True, alpha=0.3, linestyle='--')
-    axes[2].set_title('Lateral Curvature & Meta-Actions', fontsize=11)
+    axes[2].set_title('Lateral Yaw Rate & Meta-Actions', fontsize=11)
 
     # Add legend for lateral
     lat_patches = [mpatches.Patch(color=c, label=a, alpha=0.6) for a, c in sorted(lat_colors.items())]
     axes[2].legend(handles=lat_patches, loc='upper right', fontsize=7, ncol=4, framealpha=0.9)
 
     # Plot 4: Keyframe markers
-    # keyframes list already contains only keyframe data, extract timestamps directly
-    keyframe_times = [kf['timestamp_sec'] for kf in keyframes]
-
-    # Create event plot style
-    y_positions = [1] * len(keyframe_times)
-    axes[3].scatter(keyframe_times, y_positions, c='red', s=100, marker='|', linewidths=3, zorder=10)
+    y_positions = [1] * len(kf_timestamps)
+    axes[3].scatter(kf_timestamps, y_positions, c='red', s=100, marker='|', linewidths=3, zorder=10)
 
     # Add keyframe count text
-    axes[3].text(0.02, 0.5, f'Total: {len(keyframes)} keyframes',
+    axes[3].text(0.02, 0.5, f'Total: {len(kf_timestamps)} keyframes',
                  transform=axes[3].transAxes, fontsize=12, fontweight='bold',
                  bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
@@ -241,7 +183,6 @@ def main():
     output_path = Path(sys.argv[3]) if len(sys.argv) > 3 else None
 
     # Load environment
-    from pathlib import Path
     import os
 
     script_dir = Path(__file__).parent.parent
@@ -279,14 +220,7 @@ def main():
         if not output_path:
             output_path = output_dir / f"{video_uuid}_meta_actions.png"
 
-        # Load raw egomotion data for full-resolution visualization
-        try:
-            raw_df = load_raw_egomotion(video_uuid, data_dir)
-        except FileNotFoundError:
-            print(f"  Warning: Could not load raw egomotion data, using keyframe data only")
-            raw_df = None
-
-        plot_meta_actions(video_data, raw_df, output_path)
+        plot_meta_actions(video_data, output_path)
 
     except Exception as e:
         print(f"Error: {e}")

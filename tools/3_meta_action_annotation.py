@@ -68,13 +68,17 @@ class MetaActionConfig:
     strong_decel_threshold: float = -2.0
     stop_speed_threshold: float = 0.5  # m/s
 
-    # Lateral thresholds (curvature-based, 1/m)
-    sharp_steer_threshold: float = 0.01
-    gentle_steer_threshold: float = 0.002
+    # Lateral thresholds (yaw-rate-based, rad/s)
+    # Yaw rate represents the rate of heading change (turning speed)
+    sharp_steer_threshold: float = 0.08    # ~4.6 deg/s - sharp turn
+    gentle_steer_threshold: float = 0.02   # ~1.1 deg/s - gentle turn
 
     # Smoothing parameters
     acceleration_window: int = 5  # frames for median filter
-    curvature_window: int = 5
+    yaw_rate_window: int = 5     # frames for median filter
+
+    # Use yaw_rate instead of curvature for lateral detection
+    use_yaw_rate: bool = True    # Set to False to use curvature (old method)
 
 
 class MetaActionDetector:
@@ -108,10 +112,28 @@ class MetaActionDetector:
             size=self.config.acceleration_window
         )
 
-        # Smooth curvature to reduce noise
+        # Calculate yaw (heading) from quaternion
+        # Yaw represents the vehicle's heading direction (rotation around z-axis)
+        df['yaw'] = np.arctan2(
+            2 * (df['qw'] * df['qz'] + df['qx'] * df['qy']),
+            1 - 2 * (df['qy']**2 + df['qz']**2)
+        )
+
+        # Calculate yaw rate (rate of heading change) in rad/s
+        # dt = 0.1s (10Hz sampling rate)
+        dt = 0.1
+        df['yaw_rate'] = np.gradient(df['yaw'], dt)
+
+        # Smooth yaw rate to reduce noise
+        df['yaw_rate_smooth'] = median_filter(
+            df['yaw_rate'],
+            size=self.config.yaw_rate_window
+        )
+
+        # Also keep curvature for reference/comparison
         df['curvature_smooth'] = median_filter(
             df['curvature'].fillna(0),
-            size=self.config.curvature_window
+            size=self.config.yaw_rate_window
         )
 
         return df
@@ -158,38 +180,47 @@ class MetaActionDetector:
 
     def detect_lateral(self, df: pd.DataFrame) -> pd.Series:
         """
-        Detect lateral meta-actions.
+        Detect lateral meta-actions using yaw rate.
+
+        Yaw rate (rad/s) represents the rate of heading change:
+        - Positive: turning left (counter-clockwise)
+        - Negative: turning right (clockwise)
+        - Near zero: going straight
 
         Returns:
             pd.Series: Lateral meta-action label for each frame
         """
         labels = []
 
+        # Choose metric based on config
+        use_yaw = self.config.use_yaw_rate
+
         for _, row in df.iterrows():
-            curvature = row['curvature_smooth']
+            # Use yaw_rate (recommended) or curvature
+            lateral_metric = row['yaw_rate_smooth'] if use_yaw else row['curvature_smooth']
 
             # Check if reversing
             if row['vx'] < -0.5:
                 # During reverse, check steering direction
-                if curvature < -self.config.gentle_steer_threshold:
+                if lateral_metric < -self.config.gentle_steer_threshold:
                     labels.append('Reverse left')
-                elif curvature > self.config.gentle_steer_threshold:
+                elif lateral_metric > self.config.gentle_steer_threshold:
                     labels.append('Reverse right')
                 else:
                     labels.append('Reverse')
 
             # Normal forward driving
-            elif curvature < -self.config.sharp_steer_threshold:
-                labels.append('Sharp steer left')
+            elif lateral_metric < -self.config.sharp_steer_threshold:
+                labels.append('Sharp steer right')  # negative yaw_rate = right turn
 
-            elif curvature > self.config.sharp_steer_threshold:
-                labels.append('Sharp steer right')
+            elif lateral_metric > self.config.sharp_steer_threshold:
+                labels.append('Sharp steer left')   # positive yaw_rate = left turn
 
-            elif curvature < -self.config.gentle_steer_threshold:
-                labels.append('Steer left')
-
-            elif curvature > self.config.gentle_steer_threshold:
+            elif lateral_metric < -self.config.gentle_steer_threshold:
                 labels.append('Steer right')
+
+            elif lateral_metric > self.config.gentle_steer_threshold:
+                labels.append('Steer left')
 
             # Default: go straight
             else:
@@ -359,7 +390,8 @@ def process_single_video(
                 'lat_action': row['lat_action'],
                 'speed': round(row['speed'], 3),
                 'acceleration': round(row['long_accel_smooth'], 3),
-                'curvature': round(row['curvature_smooth'], 6),
+                'yaw_rate': round(row['yaw_rate_smooth'], 4),
+                'curvature': round(row['curvature_smooth'], 6),  # keep for reference
             })
 
         # Compute action statistics
@@ -368,13 +400,24 @@ def process_single_video(
             'lateral': df_labeled['lat_action'].value_counts().to_dict(),
         }
 
+        # Extract smooth data series for visualization (for consistency)
+        smooth_data = {
+            'timestamp_sec': [round(t / 1e6, 2) for t in df_labeled['timestamp'].tolist()],
+            'speed': [round(s, 3) for s in df_labeled['speed'].tolist()],
+            'acceleration': [round(a, 3) for a in df_labeled['long_accel_smooth'].tolist()],
+            'yaw_rate': [round(y, 4) for y in df_labeled['yaw_rate_smooth'].tolist()],
+            'long_action': df_labeled['long_action'].tolist(),
+            'lat_action': df_labeled['lat_action'].tolist(),
+        }
+
         return {
-            'video_uuid': video_uuid,
+            'video_uuid': video_uuid.replace('.egomotion', ''),
             'num_frames': len(df),
             'num_keyframes': len(keyframes['combined']),
             'keyframes': keyframe_data,
             'action_statistics': action_stats,
-            'keyframe_indices': keyframes
+            'keyframe_indices': keyframes,
+            'smooth_data': smooth_data,  # Full smooth data series for visualization
         }
 
     except Exception as e:
@@ -486,10 +529,8 @@ def main():
                 # Optional: visualize first video
                 if args.viz and len(chunk_results) == 1 and plot_meta_actions is not None:
                     try:
-                        # Load raw egomotion data for full-resolution visualization
-                        df_raw = pd.read_parquet(parquet_path)
                         output_path = output_dir / f"{video_uuid}_meta_actions.png"
-                        plot_meta_actions(result, df_raw, output_path)
+                        plot_meta_actions(result, output_path)
                     except Exception as e:
                         print(f"    Warning: Visualization failed: {e}")
 
