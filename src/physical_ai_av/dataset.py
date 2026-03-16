@@ -50,7 +50,7 @@ class PhysicalAIAVDatasetInterface(hf_interface.HfRepoInterface):
         token: str | bool | None = None,
         cache_dir: str | pathlib.Path | None = None,
         local_dir: str | pathlib.Path | None = None,
-        confirm_download_threshold_gb: float = 10.0,
+        confirm_download_threshold_gb: float = 99999.0,
     ) -> None:
         super().__init__(
             repo_id="nvidia/PhysicalAI-Autonomous-Vehicles",
