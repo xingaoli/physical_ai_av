@@ -21,9 +21,7 @@ from typing import Any
 import numpy as np
 import physical_ai_av
 import scipy.spatial.transform as spt
-import torch
 from dotenv import load_dotenv
-from einops import rearrange
 
 # Load environment variables from .env file
 load_dotenv()
@@ -33,7 +31,7 @@ def load_physical_aiavdataset(
     clip_id: str,
     t0_us: int = 5_100_000,
     avdi: physical_ai_av.PhysicalAIAVDatasetInterface | None = None,
-    maybe_stream: bool = True,
+    maybe_stream: bool = False,
     num_history_steps: int = 16,
     num_future_steps: int = 64,
     time_step: float = 0.1,
@@ -60,15 +58,15 @@ def load_physical_aiavdataset(
         num_frames: Number of frames per camera to load (default: 4).
 
     Returns:
-        A dictionary with the following keys:
-            - image_frames: torch.Tensor of shape (N_cameras, num_frames, 3, H, W)
-            - camera_indices: torch.Tensor of shape (N_cameras,)
-            - ego_history_xyz: torch.Tensor of shape (1, 1, num_history_steps, 3)
-            - ego_history_rot: torch.Tensor of shape (1, 1, num_history_steps, 3, 3)
-            - ego_future_xyz: torch.Tensor of shape (1, 1, num_future_steps, 3)
-            - ego_future_rot: torch.Tensor of shape (1, 1, num_future_steps, 3, 3)
-            - relative_timestamps: torch.Tensor of shape (N_cameras, num_frames)
-            - absolute_timestamps: torch.Tensor of shape (N_cameras, num_frames)
+        A dictionary with the following keys (all numpy arrays):
+            - image_frames: (N_cameras, num_frames, 3, H, W) uint8
+            - camera_indices: (N_cameras,) int64
+            - ego_history_xyz: (1, 1, num_history_steps, 3) float32
+            - ego_history_rot: (1, 1, num_history_steps, 3, 3) float32
+            - ego_future_xyz: (1, 1, num_future_steps, 3) float32
+            - ego_future_rot: (1, 1, num_future_steps, 3, 3) float32
+            - relative_timestamps: (N_cameras, num_frames) float32
+            - absolute_timestamps: (N_cameras, num_frames) int64
             - t0_us: The t0 timestamp used
             - clip_id: The clip ID
     """
@@ -159,15 +157,11 @@ def load_physical_aiavdataset(
     ego_history_rot_local = (t0_rot_inv * spt.Rotation.from_quat(ego_history_quat)).as_matrix()
     ego_future_rot_local = (t0_rot_inv * spt.Rotation.from_quat(ego_future_quat)).as_matrix()
 
-    # Convert to torch tensors with batch dimensions: (B=1, n_traj_group=1, T, ...)
-    ego_history_xyz_tensor = (
-        torch.from_numpy(ego_history_xyz_local).float().unsqueeze(0).unsqueeze(0)
-    )
-    ego_history_rot_tensor = (
-        torch.from_numpy(ego_history_rot_local).float().unsqueeze(0).unsqueeze(0)
-    )
-    ego_future_xyz_tensor = torch.from_numpy(ego_future_xyz_local).float().unsqueeze(0).unsqueeze(0)
-    ego_future_rot_tensor = torch.from_numpy(ego_future_rot_local).float().unsqueeze(0).unsqueeze(0)
+    # Convert to numpy arrays with batch dimensions: (B=1, n_traj_group=1, T, ...)
+    ego_history_xyz_tensor = np.expand_dims(np.expand_dims(ego_history_xyz_local.astype(np.float32), 0), 0)
+    ego_history_rot_tensor = np.expand_dims(np.expand_dims(ego_history_rot_local.astype(np.float32), 0), 0)
+    ego_future_xyz_tensor = np.expand_dims(np.expand_dims(ego_future_xyz_local.astype(np.float32), 0), 0)
+    ego_future_rot_tensor = np.expand_dims(np.expand_dims(ego_future_rot_local.astype(np.float32), 0), 0)
 
     # Load camera images
     image_frames_list = []
@@ -191,8 +185,8 @@ def load_physical_aiavdataset(
         frames, frame_timestamps = camera.decode_images_from_timestamps(image_timestamps)
 
         # Convert to (num_frames, 3, H, W) for model input
-        frames_tensor = torch.from_numpy(frames)
-        frames_tensor = rearrange(frames_tensor, "t h w c -> t c h w")
+        # Using numpy transpose instead of einops rearrange
+        frames_array = frames.transpose(0, 3, 1, 2)  # (T, H, W, C) -> (T, C, H, W)
 
         # Extract camera name from feature path
         if isinstance(cam_feature, str):
@@ -202,24 +196,24 @@ def load_physical_aiavdataset(
             raise ValueError(f"Unexpected camera feature type: {type(cam_feature)}")
         cam_idx = camera_name_to_index.get(cam_name, 0)
 
-        image_frames_list.append(frames_tensor)
+        image_frames_list.append(frames_array)
         camera_indices_list.append(cam_idx)
-        timestamps_list.append(torch.from_numpy(frame_timestamps.astype(np.int64)))
+        timestamps_list.append(frame_timestamps.astype(np.int64))
 
     # Stack and sort by camera index for consistent ordering
-    image_frames = torch.stack(image_frames_list, dim=0)  # (N_cameras, num_frames, 3, H, W)
-    camera_indices = torch.tensor(camera_indices_list, dtype=torch.int64)  # (N_cameras,)
-    all_timestamps = torch.stack(timestamps_list, dim=0)  # (N_cameras, num_frames)
+    image_frames = np.stack(image_frames_list, axis=0)  # (N_cameras, num_frames, 3, H, W)
+    camera_indices = np.array(camera_indices_list, dtype=np.int64)  # (N_cameras,)
+    all_timestamps = np.stack(timestamps_list, axis=0)  # (N_cameras, num_frames)
 
     # Sort by camera index to ensure consistent ordering [0, 1, 2, 6] instead of arbitrary order
-    sort_order = torch.argsort(camera_indices)
+    sort_order = np.argsort(camera_indices)
     image_frames = image_frames[sort_order]
     camera_indices = camera_indices[sort_order]
     all_timestamps = all_timestamps[sort_order]
 
     # Compute relative timestamps in seconds
     camera_tmin = all_timestamps.min()
-    relative_timestamps = (all_timestamps - camera_tmin).float() * 1e-6  # (N_cameras, num_frames)
+    relative_timestamps = (all_timestamps - camera_tmin).astype(np.float32) * 1e-6  # (N_cameras, num_frames)
 
     return {
         "image_frames": image_frames,  # (N_cameras, num_frames, 3, H, W)
@@ -236,6 +230,34 @@ def load_physical_aiavdataset(
 
 
 if __name__ == "__main__":
-    clip_id = "0a0684be-9eb3-4431-a4e7-df826224c6be"  # Example clip ID
-    data = load_physical_aiavdataset(clip_id, t0_us=5_100_000)
-    print(data)
+    print("Testing data loading with numpy (no torch dependency)...")
+    print("=" * 60)
+
+    clip_id = "25cd4769-5dcf-4b53-a351-bf2c5deb6124"  # Example clip ID
+
+    try:
+        data = load_physical_aiavdataset(clip_id, t0_us=5_100_000)
+
+        print("✓ Data loaded successfully!")
+        print()
+        print("Data summary:")
+        for key, value in data.items():
+            if isinstance(value, np.ndarray):
+                print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+            elif isinstance(value, (int, str)):
+                print(f"  {key}: {value}")
+            else:
+                print(f"  {key}: {type(value)}")
+
+        print()
+        print("=" * 60)
+        print("Sample values:")
+        print(f"  ego_history_xyz[0,0,0]: {data['ego_history_xyz'][0,0,0]}")
+        print(f"  ego_future_xyz[0,0,0]: {data['ego_future_xyz'][0,0,0]}")
+        print(f"  camera_indices: {data['camera_indices']}")
+        print(f"  relative_timestamps range: [{data['relative_timestamps'].min():.3f}, {data['relative_timestamps'].max():.3f}]")
+
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        import traceback
+        traceback.print_exc()
