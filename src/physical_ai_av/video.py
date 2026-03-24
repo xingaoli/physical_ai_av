@@ -85,9 +85,11 @@ class VideoReader(abc.ABC):
         Raises:
             ValueError: If the requested timestamps are not within the range of timestamps.
         """
+        # Allow 1 second tolerance on upper bound for small timing differences
+        max_allowed_ts = self.timestamps.max() + 1_000_000  # +1 second in microseconds
         if not (
             requested_timestamps.min() >= self.timestamps.min()
-            and requested_timestamps.max() <= self.timestamps.max()
+            and requested_timestamps.max() <= max_allowed_ts
         ):
             raise ValueError(
                 "Requested timestamps must be within the range of timestamps:\n"

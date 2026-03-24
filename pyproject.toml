@@ -12,10 +12,13 @@ dependencies = [
     "dotenv>=0.9.9",
     "einops>=0.8.2",
     "huggingface-hub>=0.36.0",
+    "matplotlib>=3.10.8",
     "numpy",
     "pandas",
     "pyarrow",
+    "scikit-learn>=1.8.0",
     "scipy",
+    "tabulate>=0.10.0",
     "tqdm",
 ]
 

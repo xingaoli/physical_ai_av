@@ -10,7 +10,7 @@ Output format matches the original egomotion structure:
 - Each video has {uuid}.egomotion.parquet with global timestamps
 
 Usage:
-    python3 tools/extract_egomotion_global.py --chunks chunk_0000
+    python3 auto_labeling/meta_action/1_extract_egomotion.py --chunks chunk_0000
 """
 
 import os
@@ -142,12 +142,12 @@ def main():
         '--chunks',
         nargs='+',
         default=None,
-        help='Specific chunk IDs to process (e.g., chunk_0000)'
+        help='Specific chunk IDs to process (e.g., chunk_0000). If not specified, auto-detects available chunks.'
     )
     args = parser.parse_args()
 
     # Load environment
-    script_dir = Path(__file__).parent.parent
+    script_dir = Path(__file__).parent.parent.parent  # Go to project root
     env_path = script_dir / ".env"
     env_vars = load_env(env_path)
 
@@ -160,8 +160,9 @@ def main():
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Define global 10Hz timeline (same as extract_camera_frames_simple.py)
-    video_duration_sec = 20.0
+    # Define global 10Hz timeline (0-20s, including 20.0s)
+    # Using 20.1s as upper bound to naturally generate 201 points with 100ms interval
+    video_duration_sec = 20.1
     sample_rate_hz = 10.0
     global_timestamps = np.arange(
         0,
@@ -169,19 +170,50 @@ def main():
         int(1_000_000 / sample_rate_hz)
     ).astype(np.int64)
 
-    print(f"\nGlobal timeline: {len(global_timestamps)} frames at {sample_rate_hz}Hz ({video_duration_sec}s)")
-    print(f"Timestamp range: {global_timestamps[0]} to {global_timestamps[-1]} μs")
+    print(f"\nGlobal timeline: {len(global_timestamps)} frames at {sample_rate_hz}Hz (0-20s)")
+    print(f"Timestamp range: {global_timestamps[0]} μs to {global_timestamps[-1]} μs")
+    print(f"  First: {global_timestamps[0]/1e6:.1f}s, Last: {global_timestamps[-1]/1e6:.1f}s")
 
     # Initialize dataset interface
     avdi = physical_ai_av.OfflinePhysicalAIAVDatasetInterface(data_dir=str(data_dir))
 
-    # Get available chunks
+    # Get available chunks from clip_index
     all_chunk_ids = [f"chunk_{i:04d}" for i in sorted(avdi.clip_index['chunk'].unique())]
 
+    # IMPORTANT: Filter to only chunks that actually have data
+    # This prevents creating empty zip files for chunks that exist in index but not in actual data
+    print("\nDetecting available chunks...")
+    available_chunks = []
+    for chunk_id in tqdm(all_chunk_ids, desc="Verifying chunks"):
+        chunk_num = int(chunk_id.replace('chunk_', ''))
+        chunk_index = avdi.clip_index[avdi.clip_index['chunk'] == chunk_num]
+        if len(chunk_index) > 0:
+            # Try to access one video's egomotion data to verify it exists
+            first_clip_uuid = chunk_index.iloc[0].name  # Get UUID from index name
+            try:
+                egomotion = avdi.get_clip_feature(
+                    first_clip_uuid,
+                    avdi.features.LABELS.EGOMOTION,
+                    maybe_stream=False
+                )
+                if egomotion is not None:
+                    available_chunks.append(chunk_id)
+            except Exception:
+                pass
+
+    print(f"Found {len(available_chunks)} chunks with actual data (out of {len(all_chunk_ids)} in index)")
+
     if args.chunks:
-        chunk_ids_to_process = [c for c in args.chunks if c in all_chunk_ids]
+        chunk_ids_to_process = [c for c in args.chunks if c in available_chunks]
+        if len(chunk_ids_to_process) < len(args.chunks):
+            missing = set(args.chunks) - set(chunk_ids_to_process)
+            print(f"Warning: These chunks have no data and will be skipped: {missing}")
     else:
-        chunk_ids_to_process = all_chunk_ids
+        chunk_ids_to_process = available_chunks
+
+    if not chunk_ids_to_process:
+        print("Error: No valid chunks found to process!")
+        return
 
     print(f"\nWill process {len(chunk_ids_to_process)} chunks:")
     for chunk_id in chunk_ids_to_process:

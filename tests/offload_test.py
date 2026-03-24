@@ -138,15 +138,15 @@ def load_physical_aiavdataset(
     # Transform to local frame (relative to t0 pose)
     # The model expects trajectories in the ego frame at t0.
     # Transformation: xyz_local = R_t0^{-1} @ (xyz_world - xyz_t0)
-    # 这里实际上是把xyz世界坐标系的点先平移到t0，然后再旋转方向
-    t0_xyz = ego_history_xyz[-1].copy()  # Position at t0
+    # 这里实际上是把xyz视频首帧坐标系的点先平移到以这个序列的t0首帧，然后再旋转方向
+    t0_xyz = ego_history_xyz[-1].copy()  # Position at t0 (视频首帧坐标系)
     t0_quat = ego_history_quat[-1].copy()  # Orientation at t0
     t0_rot = spt.Rotation.from_quat(t0_quat)
-    # 这里的t0_rot其实就是ego2world,t0_rot_inv是world2ego
+    # 这里的t0_rot其实就是ego_t0_cur2ego_start_video,t0_rot_inv是ego_start_video2ego_t0_cur
     t0_rot_inv = t0_rot.inv()
     
     # Transform history positions to local frame
-    # world2ego @ history_world
+    # ego_s2ego @ history_world
     ego_history_xyz_local = t0_rot_inv.apply(ego_history_xyz - t0_xyz)
 
     # Transform future positions to local frame
