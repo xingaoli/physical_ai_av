@@ -109,3 +109,5 @@ notebooks_local
 # download lock
 tools/download_scheduled/.consecutive_failures
 tools/download_scheduled/.download_scheduled.pid
+tools/download_simple/.consecutive_failures
+tools/download_simple/.download_scheduled.pid
