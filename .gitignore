@@ -105,3 +105,7 @@ Thumbs.db
 outputs/
 
 notebooks_local
+
+# download lock
+tools/download_scheduled/.consecutive_failures
+tools/download_scheduled/.download_scheduled.pid
