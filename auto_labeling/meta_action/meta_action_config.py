@@ -15,10 +15,10 @@ class MetaActionConfig:
 
     # Longitudinal thresholds (m/s²)
     strong_accel_threshold: float = 2.0
-    gentle_accel_threshold: float = 1.0
-    gentle_decel_threshold: float = -1.0
+    gentle_accel_threshold: float = 0.5
+    gentle_decel_threshold: float = -0.5
     strong_decel_threshold: float = -2.0
-    stop_speed_threshold: float = 0.5  # m/s
+    stop_speed_threshold: float = 0.2  # m/s
 
     # Lateral thresholds - Curvature based (1/m, recommended)
     # Curvature = 1/turning_radius, coordinate-system independent
@@ -26,7 +26,7 @@ class MetaActionConfig:
     # 0.01 ≤ |κ| < 0.05: gentle turn (20m-100m radius)
     # |κ| ≥ 0.05: sharp turn (radius < 20m)
     sharp_steer_threshold_curvature: float = 0.05   # 1/m
-    gentle_steer_threshold_curvature: float = 0.01  # 1/m
+    gentle_steer_threshold_curvature: float = 0.005  # 1/m
 
     # Lateral thresholds - Yaw rate based (rad/s, noisy)
     # Only used if use_yaw_rate = True
