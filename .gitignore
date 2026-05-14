@@ -112,3 +112,6 @@ tools/download_scheduled/.consecutive_failures
 tools/download_scheduled/.download_scheduled.pid
 tools/download_simple/.consecutive_failures
 tools/download_simple/.download_scheduled.pid
+
+auto_labeling/label_coc/output
+auto_labeling/label_coc/prompt

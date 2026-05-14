@@ -7,11 +7,16 @@ Output per field:
   - cluster_results_{field}.json  — clusters with clip_id/keyframe_index mapping
   - cluster_vis_{field}.png       — 2D visualization
 
+Methods:
+  - coarse_umap_hdbscan: 粗粒度聚类（少量大簇）
+  - fine_umap_hdbscan:   细粒度聚类（多量小簇）
+  - pca_kmeans:          传统 K-Means 聚类
+
 Usage:
     python auto_labeling/key_frame_cluster/2_cluster_keyframe_description.py
 
     python auto_labeling/key_frame_cluster/2_cluster_keyframe_description.py \
-        --method tuned_umap_hdbscan --min-cluster-size 10
+        --method fine_umap_hdbscan --min-cluster-size 10
 
     python auto_labeling/key_frame_cluster/2_cluster_keyframe_description.py --compare-all
 """
@@ -90,7 +95,7 @@ def load_data(data_path: str):
 
             # --- key_objects: each sub_type as independent sample ---
             for ko in desc.get("key_objects", []):
-                st = ko.get("sub_type", "").strip()
+                st = ko.get("description", "").strip()
                 if st:
                     field_data["key_objects"]["samples"].append(st)
                     field_data["key_objects"]["meta"].append({**base_meta, "text": st})
@@ -109,54 +114,86 @@ def load_data(data_path: str):
 # Clustering methods
 # ---------------------------------------------------------------------------
 
-def run_tuned_umap_hdbscan(embeddings, min_cluster_size=10):
-    n = len(embeddings)
-    n_neighbors = min(50, n - 1)
-    n_components = min(5, n - 1)
-    mcs = max(min_cluster_size, n // 200)
-    ms = max(3, mcs // 2)
+def run_fine_umap_hdbscan(embeddings, min_cluster_size=10, umap_components=5):
+    from sklearn.metrics.pairwise import cosine_distances
 
+    n = len(embeddings)
+    n_neighbors = min(15, n - 1)          # 保留局部细节 → 空间碎片化
+    n_components = min(umap_components, n - 1)
+    mcs = max(min_cluster_size, n // 200)
+    ms = max(2, mcs // 3)                 # 低门槛 → 更容易形成簇
+
+    # 聚类用指定维度
     reducer = umap.UMAP(
         n_neighbors=n_neighbors, min_dist=0.05, n_components=n_components,
         metric="cosine", random_state=42,
     )
     reduced = reducer.fit_transform(embeddings)
 
+    dist_matrix = cosine_distances(reduced).astype(np.float64)
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=mcs, min_samples=ms,
-        metric="euclidean", cluster_selection_method="leaf",
+        metric="precomputed", cluster_selection_method="leaf",
     )
-    return clusterer.fit_predict(reduced), reduced
+    labels = clusterer.fit_predict(dist_matrix)
+
+    # 可视化用 2D（避免二次降维）
+    if n_components != 2:
+        vis_reducer = umap.UMAP(
+            n_neighbors=n_neighbors, min_dist=0.05, n_components=2,
+            metric="cosine", random_state=42,
+        )
+        vis_coords = vis_reducer.fit_transform(embeddings)
+    else:
+        vis_coords = reduced
+
+    return labels, reduced, vis_coords
 
 
-def run_default_umap_hdbscan(embeddings, min_cluster_size=10):
+def run_coarse_umap_hdbscan(embeddings, min_cluster_size=10, umap_components=5):
+    from sklearn.metrics.pairwise import cosine_distances
+
     n = len(embeddings)
-    n_neighbors = min(15, n - 1)
-    n_components = min(5, n - 1)
+    n_neighbors = min(50, n - 1)          # 全局平滑 → 空间均匀
+    n_components = min(umap_components, n - 1)
     mcs = max(min_cluster_size, n // 200)
-    ms = max(2, mcs // 3)
+    ms = max(3, mcs // 2)                 # 高门槛 → 更难形成簇
 
+    # 聚类用指定维度
     reducer = umap.UMAP(
         n_neighbors=n_neighbors, min_dist=0.1, n_components=n_components,
         metric="cosine", random_state=42,
     )
     reduced = reducer.fit_transform(embeddings)
 
+    dist_matrix = cosine_distances(reduced).astype(np.float64)
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=mcs, min_samples=ms,
-        metric="euclidean", cluster_selection_method="eom",
+        metric="precomputed", cluster_selection_method="eom",
     )
-    return clusterer.fit_predict(reduced), reduced
+    labels = clusterer.fit_predict(dist_matrix)
+
+    # 可视化用 2D（避免二次降维）
+    if n_components != 2:
+        vis_reducer = umap.UMAP(
+            n_neighbors=n_neighbors, min_dist=0.1, n_components=2,
+            metric="cosine", random_state=42,
+        )
+        vis_coords = vis_reducer.fit_transform(embeddings)
+    else:
+        vis_coords = reduced
+
+    return labels, reduced, vis_coords
 
 
-def run_pca_kmeans(embeddings, min_cluster_size=10):
+def run_pca_kmeans(embeddings, min_cluster_size=10, max_clusters=50):
     n = len(embeddings)
     nc = min(50, n - 1)
     pca = PCA(n_components=nc, random_state=42)
     reduced = pca.fit_transform(embeddings)
 
     k_min = max(3, min_cluster_size)
-    k_max = min(50, n // max(min_cluster_size, 1))
+    k_max = min(max_clusters, n // max(min_cluster_size, 1))
     if k_max <= k_min:
         k_max = k_min + 5
     K_range = range(k_min, k_max + 1, 5)
@@ -174,12 +211,13 @@ def run_pca_kmeans(embeddings, min_cluster_size=10):
 
     km = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
     labels = km.fit_predict(reduced)
-    return labels, reduced
+
+    return labels, reduced, None  # None 表示用 t-SNE 可视化
 
 
 METHODS = {
-    "default_umap_hdbscan": ("默认UMAP+HDBSCAN", run_default_umap_hdbscan),
-    "tuned_umap_hdbscan": ("调优UMAP+HDBSCAN", run_tuned_umap_hdbscan),
+    "coarse_umap_hdbscan": ("粗粒度UMAP+HDBSCAN", run_coarse_umap_hdbscan),
+    "fine_umap_hdbscan": ("细粒度UMAP+HDBSCAN", run_fine_umap_hdbscan),
     "pca_kmeans": ("PCA+K-Means", run_pca_kmeans),
 }
 
@@ -209,15 +247,18 @@ def evaluate(embeddings, labels):
     return stats
 
 
-def visualize_2d(embeddings, labels, save_path, title="Clustering"):
+def visualize_2d(embeddings, labels, save_path, title="Clustering", perplexity=None, vis_coords=None):
     n = len(labels)
     if n <= 1:
         return
     unique = set(labels.tolist())
     n_clusters = len(unique) - (1 if -1 in unique else 0)
 
-    if n > 3:
-        perp = min(30, max(5, n // 3))
+    # 如果提供了预计算的 2D 坐标，直接用；否则降维
+    if vis_coords is not None:
+        coords = vis_coords
+    elif n > 3:
+        perp = perplexity if perplexity is not None else min(30, max(5, n // 3))
         try:
             coords = TSNE(n_components=2, random_state=42, perplexity=perp,
                           max_iter=1000, learning_rate="auto").fit_transform(embeddings)
@@ -298,12 +339,18 @@ def main():
     parser = argparse.ArgumentParser(description="Cluster keyframe descriptions (separate per field)")
     parser.add_argument("--input", type=str, default=default_input)
     parser.add_argument("--output-dir", type=str, default=default_output_dir)
-    parser.add_argument("--model", type=str, default="ckpts/all-mpnet-base-v2")
-    parser.add_argument("--method", type=str, default="tuned_umap_hdbscan",
+    parser.add_argument("--model", type=str, default="ckpts/bge-large-en-v1.5")
+    parser.add_argument("--method", type=str, default="fine_umap_hdbscan",
                         choices=list(METHODS.keys()))
     parser.add_argument("--min-cluster-size", type=int, default=10)
+    parser.add_argument("--max-clusters", type=int, default=50,
+                        help="Maximum clusters for KMeans (default: 50)")
+    parser.add_argument("--umap-components", type=int, default=5,
+                        help="UMAP n_components for dimensionality reduction (default: 5)")
     parser.add_argument("--compare-all", action="store_true")
     parser.add_argument("--gpu", type=str, default="0")
+    parser.add_argument("--tsne-perplexity", type=int, default=None,
+                        help="TSNE perplexity for visualization (default: auto-calculated)")
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -325,7 +372,8 @@ def main():
             continue
         print(f"  Encoding {field} ({len(fd['samples'])} texts)...")
         all_embeddings[field] = encoder.encode(
-            fd["samples"], show_progress_bar=True, convert_to_tensor=False
+            fd["samples"], show_progress_bar=True, convert_to_tensor=False,
+            normalize_embeddings=True
         )
 
     # 3. Cluster each field independently
@@ -340,7 +388,8 @@ def main():
             best_sil = -2
             for mk, (mname, mfunc) in METHODS.items():
                 print(f"  Method: {mname}")
-                labels, reduced = mfunc(embeddings, args.min_cluster_size)
+                labels, reduced, vis_coords = mfunc(embeddings, args.min_cluster_size,
+                                                    args.max_clusters if mk == "pca_kmeans" else args.umap_components)
                 stats = evaluate(embeddings, labels)
                 print(f"    clusters={stats['n_clusters']}  noise={stats['n_noise']} ({stats['noise_ratio']}%)")
                 if "silhouette" in stats:
@@ -348,18 +397,25 @@ def main():
                     if stats["silhouette"] > best_sil:
                         best_sil = stats["silhouette"]
                         best_method = mk
-                vis_path = os.path.join(args.output_dir, f"cluster_vis_{field}_{mk}.png")
-                visualize_2d(reduced, labels, vis_path, title=f"{field} — {mname}")
 
-            print(f"  Best for {field}: {best_method} (silhouette={best_sil:.4f})")
-            chosen_method = best_method
+                # Save all results in compare-all mode
+                result_path = os.path.join(args.output_dir, f"cluster_results_{field}_{mk}.json")
+                save_results(labels, fd["meta"], result_path)
+                vis_path = os.path.join(args.output_dir, f"cluster_vis_{field}_{mk}.png")
+                visualize_2d(reduced, labels, vis_path, title=f"{field} — {mname}",
+                            perplexity=args.tsne_perplexity, vis_coords=vis_coords)
+
+            print(f"  Best by silhouette: {best_method} (silhouette={best_sil:.4f})")
+            print(f"  All results saved. Please manually review and choose.")
+            continue  # Skip the "final run" section
         else:
             chosen_method = args.method
 
         # Final run with chosen method
         mname, mfunc = METHODS[chosen_method]
         print(f"  Final: {mname}")
-        labels, reduced = mfunc(embeddings, args.min_cluster_size)
+        labels, reduced, vis_coords = mfunc(embeddings, args.min_cluster_size,
+                                            args.max_clusters if chosen_method == "pca_kmeans" else args.umap_components)
         stats = evaluate(embeddings, labels)
         print(f"    clusters={stats['n_clusters']}  noise={stats['n_noise']} ({stats['noise_ratio']}%)")
         if "silhouette" in stats:
@@ -370,7 +426,8 @@ def main():
         sorted_clusters = save_results(labels, fd["meta"], result_path)
 
         vis_path = os.path.join(args.output_dir, f"cluster_vis_{field}_{chosen_method}.png")
-        visualize_2d(reduced, labels, vis_path, title=f"{field} — {mname}")
+        visualize_2d(reduced, labels, vis_path, title=f"{field} — {mname}",
+                    perplexity=args.tsne_perplexity, vis_coords=vis_coords)
 
         # Summary
         print(f"  Summary:")
