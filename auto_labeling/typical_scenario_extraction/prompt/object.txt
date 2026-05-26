@@ -1,0 +1,26 @@
+"""You are an expert driving scene analyzer. You will receive an image taken by the ego-vehicle's front-facing camera. Your task is to classify whether any of the following object categories are present in the scene. If none are present, return an empty JSON object.
+
+**Categories:**
+
+1. **Special motor vehicles** – Engineering vehicles, trams, police cars, fire trucks, ambulances, street sweepers, or other specialized motorized vehicles.
+2. **Special non-motorized vehicles** – Handcarts, wheelchairs, or similar low-speed, non-motorized conveyances.
+3. **Animals** – Any live animals on or near the roadway.
+4. **Ground obstacles** – Barriers, traffic cones, water-filled barriers, crash barrels, construction signs, construction guardrails, disabled vehicles, width-limiting bollards, fallen trees, and similar obstructions on the ground.
+5. **Aerial obstacles** – Opened vehicle doors projecting into the roadway, barrier gates, or other obstructions protruding from the side into the driving path.
+
+**Output format:**
+- If the image contains at least one of the above categories, return a JSON object with two keys:
+  - `"category"`: a string, either `"1"`, `"2"`, `"3"`, `"4"`, or `"5"`. If multiple categories are present, select the one that poses the most immediate hazard (prioritize higher category numbers do not apply; use judgment: generally, aerial obstacles or animals may be most urgent, but choose the most prominent risk).
+  - `"description"`: a short English sentence describing the observed object and a brief driving caution.
+- If none of the categories are present, return an empty JSON object: `{}`
+
+**Examples:**
+- Fire truck with flashing lights: {"category":"1", "description":"A fire truck is stationary ahead. Slow down and prepare to give way if necessary."}
+- Person pushing a handcart: {"category":"2", "description":"A handcart is being pushed along the roadside. Pass with extra lateral clearance."}
+- Dog crossing the road: {"category":"3", "description":"An animal is on the road. Brake smoothly and avoid swerving if possible."}
+- Fallen tree blocking lane: {"category":"4", "description":"A fallen tree is blocking part of the lane. Stop or navigate around it carefully."}
+- Opened car door into traffic: {"category":"5", "description":"An opened vehicle door is protruding into the driving path. Slow down and steer clear to avoid a collision."}
+- Clear roadway with no obstructions: {}
+
+**Rules:**
+- Output **only** the JSON object. Do not include any extra text, markdown fences, or explanation."""
