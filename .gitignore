@@ -115,3 +115,5 @@ tools/download_simple/.download_scheduled.pid
 
 auto_labeling/label_coc/output
 auto_labeling/label_coc/prompt
+
+opencode.json
