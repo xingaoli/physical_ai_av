@@ -245,7 +245,7 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Only process first 5 clips")
     args = parser.parse_args()
 
-    parquet_path = "data/PhysicalAI-Autonomous-Vehicles/reasoning/ood_reasoning.parquet"
+    parquet_path = "data/PhysicalAI-Autonomous-Vehicles-mini/reasoning/ood_reasoning.parquet"
     output_dir = os.path.join(os.path.dirname(__file__), "output")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -288,7 +288,6 @@ def main():
     while pending:
         round_num += 1
         failed: list[tuple[str, int, dict]] = []
-        round_results: dict[str, dict[int, dict[str, Any]]] = {}
 
         for clip_id, t0_us, event in tqdm(pending, desc=f"Round {round_num} ({len(pending)} tasks)"):
             try:
@@ -304,23 +303,20 @@ def main():
                 failed.append((clip_id, t0_us, event))
                 continue
 
-            round_results.setdefault(clip_id, {})[t0_us] = {
-                "event": event,
-                "data": data,
-            }
-
-        for clip_id, new_data in round_results.items():
             output_path = os.path.join(output_dir, f"{clip_id}.pkl")
             existing: dict[int, dict[str, Any]] = {}
             if os.path.exists(output_path):
                 with open(output_path, "rb") as f:
                     existing = pickle.load(f)
 
-            for t0_us, entry in new_data.items():
-                if t0_us in existing:
-                    tqdm.write(f"Skip duplicate: clip={clip_id}, t0={t0_us} already in {output_path}")
-                    continue
-                existing[t0_us] = entry
+            if t0_us in existing:
+                tqdm.write(f"Skip duplicate: clip={clip_id}, t0={t0_us} already in {output_path}")
+                continue
+
+            existing[t0_us] = {
+                "event": event,
+                "data": data,
+            }
 
             with open(output_path, "wb") as f:
                 pickle.dump(existing, f)
@@ -328,10 +324,8 @@ def main():
             if args.debug:
                 print(f"\n[debug] Saved {output_path}")
                 print(f"  timestamps: {sorted(existing.keys())}")
-                first_t0 = sorted(existing.keys())[0]
-                first_data = existing[first_t0]["data"]
-                print(f"  data keys: {list(first_data.keys())}")
-                for k, v in first_data.items():
+                print(f"  data keys: {list(data.keys())}")
+                for k, v in data.items():
                     if isinstance(v, torch.Tensor):
                         print(f"    {k}: shape={tuple(v.shape)}, dtype={v.dtype}")
                     else:
@@ -339,6 +333,7 @@ def main():
 
         if not failed:
             print("All tasks completed successfully.")
+            pending = []
             break
 
         print(f"Round {round_num} done: {len(pending) - len(failed)} succeeded, {len(failed)} failed. Retrying...")
