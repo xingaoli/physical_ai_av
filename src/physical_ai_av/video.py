@@ -136,7 +136,7 @@ class SeekVideoReader(VideoReader):
         #   "AUTO" means let PyAV decide what kind of multi-threading to use
         #   "SLICE": Decode more than one part of a single frame at once
         #   "FRAME": Decode more than one frame at once
-        self.container.streams.video[0].thread_type = av.codec.context.ThreadType.AUTO
+        self.container.streams.video[0].thread_type = av.codec.context.ThreadType.SLICE
         self.container.streams.video[0].thread_count = thread_count
         self.stream = next(s for s in self.container.streams if s.type == "video")
         self.start_time_pts = self.stream.start_time
