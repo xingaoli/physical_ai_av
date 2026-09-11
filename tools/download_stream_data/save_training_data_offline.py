@@ -56,7 +56,7 @@ def load_physical_aiavdataset_local(
     if data_dir is None:
         data_dir = os.environ.get(
             "ALPAMAYO_DATA_DIR",
-            "/home/xingao/code/Alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles",
+            "/home/xingao/code/NVlabs-alpamayo/alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles",
         )
 
     clip_index = pd.read_parquet(os.path.join(data_dir, "clip_index.parquet"))
@@ -229,7 +229,7 @@ def main():
 
     data_dir = os.environ.get(
         "ALPAMAYO_DATA_DIR",
-        "/home/xingao/code/Alpamayo/data/PhysicalAI-Autonomous-Vehicles",
+        "/home/xingao/code/NVlabs-alpamayo/alpamayo/data/PhysicalAI-Autonomous-Vehicles",
     )
     # output_dir = os.path.join(os.path.dirname(__file__), "output_offline")
     output_dir = "/mnt/hdd_data/public_data/PhysicalAI-Autonomous-Vehicles-cache"

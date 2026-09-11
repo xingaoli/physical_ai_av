@@ -59,7 +59,7 @@ def default_data_dir() -> Path:
     if repo_data_dir.exists():
         return repo_data_dir
 
-    return Path("/home/xingao/code/Alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles")
+    return Path("/home/xingao/code/NVlabs-alpamayo/alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles")
 
 
 def category_sort_value(category: str) -> tuple[int, int | str]:

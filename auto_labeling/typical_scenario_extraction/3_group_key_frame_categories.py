@@ -46,7 +46,7 @@ def default_data_dir() -> Path:
     if repo_data_dir.exists():
         return repo_data_dir
 
-    return Path("/home/xingao/code/Alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles")
+    return Path("/home/xingao/code/NVlabs-alpamayo/alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles")
 
 
 def parse_chunk_number(chunk_id: Any) -> int | None:

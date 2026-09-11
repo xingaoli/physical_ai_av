@@ -331,7 +331,7 @@ def main():
 
     default_data_dir = os.getenv(
         "ALPAMAYO_DATA_DIR",
-        "/home/xingao/code/Alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles",
+        "/home/xingao/code/NVlabs-alpamayo/alpamayo1.5/data/PhysicalAI-Autonomous-Vehicles",
     )
     default_input = os.path.join(default_data_dir, "labels", "key_frame_description", "kf_desc.json")
     default_output_dir = os.path.join(default_data_dir, "labels", "key_frame_description")
